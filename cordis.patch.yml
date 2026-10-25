@@ -1,0 +1,4 @@
+# dsh bundle layer: mount the routing-forensics plugin (lib/index.js).
+- insert:
+    - id: routing-forensics
+      name: '@bushizhanghan/dsh-routing-forensics'
