@@ -80,6 +80,27 @@ test('estimateCost prices a known model and returns null for an unknown one', ()
   assert.equal(estimateCost('totally-unknown-model', 1000, 1000), null)
 })
 
+test('estimateCost bills cache reads separately at a tenth of input', () => {
+  // Cache reads outnumber uncached input 18:1 on this host, so dropping them
+  // understated spend by up to 19x while still looking plausible.
+  const cached = estimateCost('deepseek-v4.1-flash', 0, 0, 1_000_000)
+  assert.ok(Math.abs(cached - 0.014) < 1e-12, `cache read priced at ${cached}`)
+  const both = estimateCost('deepseek-v4.1-flash', 1_000_000, 1_000_000, 1_000_000)
+  assert.ok(Math.abs(both - (0.14 + 0.28 + 0.014)) < 1e-12, `combined priced at ${both}`)
+})
+
+test('replaySession counts cache reads in the context peak', () => {
+  // A cached turn's real context is the uncached remainder plus the cache
+  // read; counting only inputTokens showed a 3533 peak beside 7.1M of cache.
+  const events = [
+    turnStart(1, 1),
+    userMsg(2, 'hi'),
+    asstMsg(3, 1, 1, 'deepseek-v4.1-flash', { usage: { inputTokens: 1000, outputTokens: 100, cacheReadTokens: 300_000 } }),
+  ]
+  const [rec] = replaySession(events)
+  assert.equal(rec.contextPeak, 301_000)
+})
+
 test('every price-table entry is a two-number USD per-million rate', () => {
   for (const [name, rates] of Object.entries(PRICE_TABLE)) {
     assert.equal(rates.length, 2, `${name} has [input, output]`)
@@ -273,8 +294,8 @@ test('auditSession flags a cheap model on complex work that failed as an error',
     header(1, 'deepseek-v4.1-flash'),
     turnStart(2, 1),
     userMsg(3, 'read every one of these 9 pages word for word and fix them all'),
-    retry(4, 1, 1, 'SERVER'),
-    retry(5, 1, 1, 'SERVER'),
+    retry(4, 1, 1, 'INVALID_REQUEST'),
+    retry(5, 1, 1, 'INVALID_REQUEST'),
     asstMsg(6, 1, 1, 'deepseek-v4.1-flash', { usage: { inputTokens: 100_000, outputTokens: 5000 }, tools: [toolCall('write')] }),
   ]
   const { findings, under } = auditSession(events)
@@ -284,7 +305,7 @@ test('auditSession flags a cheap model on complex work that failed as an error',
   assert.ok(f, 'under-provision-retried finding present')
   assert.equal(f.severity, 'error')
   assert.equal(f.data.retries, 2)
-  assert.deepEqual(f.data.codes, { SERVER: 2 })
+  assert.deepEqual(f.data.codes, { INVALID_REQUEST: 2 })
 })
 
 test('auditSession separates provider-capacity retries from model failures', () => {
@@ -414,7 +435,7 @@ test('deriveRules emits one rule per observed shape, ranked by evidence', () => 
     { complexity: 'simple', tier: 'premium', inputTokens: 100, outputTokens: 10, retries: 0, models: [{ model: 'step-5-preview', steps: 1 }], retryCodes: [] },
     { complexity: 'simple', tier: 'cheap', inputTokens: 100, outputTokens: 10, retries: 0, models: [{ model: 'deepseek-v4.1-flash', steps: 1 }], retryCodes: [] },
     // complex work on a cheap model that failed on its own merits
-    { complexity: 'complex', tier: 'cheap', inputTokens: 1000, outputTokens: 100, retries: 3, models: [{ model: 'deepseek-v4.1-flash', steps: 1 }], retryCodes: [{ code: 'SERVER', n: 3 }] },
+    { complexity: 'complex', tier: 'cheap', inputTokens: 1000, outputTokens: 100, retries: 3, models: [{ model: 'deepseek-v4.1-flash', steps: 1 }], retryCodes: [{ code: 'INVALID_REQUEST', n: 3 }] },
     // a clean shape
     { complexity: 'standard', tier: 'standard', inputTokens: 500, outputTokens: 50, retries: 0, models: [{ model: 'mimo-v2.6-pro', steps: 1 }], retryCodes: [] },
   ]
@@ -436,7 +457,7 @@ test('deriveRules emits one rule per observed shape, ranked by evidence', () => 
 
 test('deriveRules does not call a capacity-only retry a model failure', () => {
   const rows = [
-    { complexity: 'complex', tier: 'cheap', inputTokens: 100, outputTokens: 10, retries: 5, models: [{ model: 'deepseek-v4.1-flash', steps: 1 }], retryCodes: [{ code: 'RATE_LIMIT', n: 5 }] },
+    { complexity: 'complex', tier: 'cheap', inputTokens: 100, outputTokens: 10, retries: 5, models: [{ model: 'deepseek-v4.1-flash', steps: 1 }], retryCodes: [{ code: 'RATE_LIMIT', n: 5 }, { code: 'SERVER', n: 2 }] },
   ]
   const [rule] = deriveRules(rows)
   assert.equal(rule.evidence.underProvisioned, 1)

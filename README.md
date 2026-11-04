@@ -16,7 +16,7 @@ dsh plugin --profile desktop add @bushizhanghan/dsh-routing-forensics
 | 工具 | 作用 |
 |---|---|
 | `routing_audit` | 审计单个会话：回放每轮，按任务复杂度分档，找过配/欠配 |
-| `routing_sweep` | 扫描全部会话，按浪费金额排序 |
+| `routing_sweep` | 扫描会话（默认最新 60 个），按浪费金额排序；读不了的会话会列在 `skipped` 里 |
 | `routing_rules` | 从证据产出可执行的路由规则 |
 
 ## 怎么判断复杂度（确定性，不调 LLM）
@@ -38,7 +38,7 @@ dsh plugin --profile desktop add @bushizhanghan/dsh-routing-forensics
 | 4-5 | standard | standard |
 | ≥6 | complex | premium |
 
-**上下文权重刻意压得很重**：一个人只打了「继续」但带着 300k 上下文，那是真在干活，不是琐事。
+**上下文权重刻意压得很重**：一个人只打了「继续」但带着 300k 上下文（未缓存输入 + 缓存读取之和），那是真在干活，不是琐事。
 
 ## 两类浪费
 
@@ -48,19 +48,19 @@ dsh plugin --profile desktop add @bushizhanghan/dsh-routing-forensics
 | `under-provision-retried` | ✗ error | 贵活用便宜模型**且失败了**（非容量类错误）——每次重试重发整个上下文，比直接升级更贵 |
 | `under-provision-capacity-retry` | · info | 便宜活干重活但失败原因是限流/超时——**不是模型能力问题**，换个更好的模型也会撞同一堵墙 |
 
-这个区分很重要：把 `RATE_LIMIT` 算成"模型不行"会让工具天天喊狼来了。
+这个区分很重要：把 `RATE_LIMIT` / `SERVER` 算成"模型不行"会让工具天天喊狼来了。
 
 ## 设计取舍
 
 - **参考价取该档第一个声明的模型，不是全局最便宜**。按 input+output 之和挑"最便宜"在混合定价下是错的：glm (0.1/0.3) 之和低于 deepseek (0.14/0.28)，但输出密集时 glm 更贵、输入密集时 deepseek 更贵。
 - **金额是估算，不是账单**。内置价目表按公开标价，明确标注 `estimateNotice`；不在表里的模型只计数不定价（`unpricedSessions`），不猜。
-- **`SERVER` 不算容量限制**。它太泛，常常就是模型自己的失败；当成容量会让误路由藏在借口后面。只有 `RATE_LIMIT` / `TIMEOUT` / `TRANSPORT` 算。
+- **`SERVER` 算容量限制**。5xx 是服务端拒了这次请求，换个更强的模型也会撞同一堵墙；把 275 次 `SERVER` 当成「模型不行」会让 `under-provision-retried` 天天喊狼来了。容量类是 `RATE_LIMIT` / `SERVER` / `TIMEOUT` / `TRANSPORT`，其余代码才算模型自身的失败。
 - **确定性**：复杂度分级、浪费计算、规则推导全是纯函数，同一份日志永远同一结论。
 
 ## 开发
 
 ```sh
-node --test test/    # 33 个单测 + 15 项集成测试
+node --test          # 19 个单测 + 15 项集成测试
 ```
 
 测试用真机上的会话日志做 fixture。
