@@ -1,6 +1,6 @@
 {
   "name": "@bushizhanghan/dsh-routing-forensics",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Forensic audit of past model-routing decisions: which turns put an expensive model on cheap work, which put a cheap model on expensive work and paid for it in retries, and which task shapes belong on which tier. Deterministic, no LLM — the money figures are estimates from a built-in price table, clearly labelled. 模型路由浪费取证：复盘每一次模型调用，算出钱花在了哪一档错误的模型上。",
   "type": "module",
   "main": "lib/index.js",

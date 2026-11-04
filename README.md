@@ -60,7 +60,7 @@ dsh plugin --profile desktop add @bushizhanghan/dsh-routing-forensics
 ## 开发
 
 ```sh
-node --test          # 19 个单测 + 15 项集成测试
+node --test          # 35 个单测 + 1 个集成脚本（内含 18 项断言，失败时退出码非 0）
 ```
 
 测试用真机上的会话日志做 fixture。
